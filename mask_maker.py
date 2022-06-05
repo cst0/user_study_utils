@@ -1,27 +1,44 @@
 #!/usr/bin/env python3
 
 from cv2 import cv2
+import numpy as np
+import argparse
+import os
 
 DOWN = "down"
 UP = "up"
 
 
 class MaskMaker:
-    def __init__(self, path_in, path_out):
-        self._path_out = path_out
-        self.source_image = cv2.imread(path_in)
-        self.mask_image = 0 * self.source_image
-        self.display_image = self.source_image
+    def __init__(self, path_in, path_out, types):
+        isdir = False
+        paths_in = []
+        if os.path.isfile(path_in):
+            paths_in.append(path_in)
+        if os.path.isdir(path_in):
+            dirlist = os.listdir(path_in)
+            paths_in += dirlist
+            isdir = True
 
         self._windowName = "image"
         self._default_brush_size = 20
         self._default_opacity_value = 20
-        cv2.imshow(self._windowName, self.mask_image)
+        cv2.namedWindow(self._windowName, cv2.WINDOW_KEEPRATIO)
+        cv2.imshow(self._windowName, np.zeros(20))
+        cv2.resizeWindow(self._windowName, 1000, 1000)
+
+        self.updateable = False
+        self._mouse_state = UP
+        self._mouse_x = 0
+        self._mouse_y = 0
+        self._brush_value = self._default_brush_size
+        self._opacity_value = self._default_opacity_value / 100
+
         cv2.createTrackbar(
             "Brush Size",
             self._windowName,
             self._default_brush_size,
-            100,
+            1000,
             self._brush_slider_cb,
         )
         cv2.createTrackbar(
@@ -33,18 +50,38 @@ class MaskMaker:
         )
         cv2.setMouseCallback(self._windowName, self._mouse_cb)
 
-        self.updateable = False
-        self._mouse_state = UP
-        self._mouse_x = 0
-        self._mouse_y = 0
-        self._brush_value = self._default_brush_size
-        self._opacity_value = self._default_opacity_value / 100
+        for f in paths_in:
+            f: str
+            for type_ in types:
+                split = f.split(".")
+                ext = split[-1]
+                root = ".".join(split[:-1])
+                outfile = path_out
+                infile = f
+                if isdir:
+                    outfile = os.path.join(path_out, root, type_ + "mask." + ext)
+                    infile = os.path.join(path_in, f)
+                self.run_masking(infile, outfile, type_)
+        self.shutdown()
 
-        while cv2.waitKey(1) & 0xFF != 27:
+    def run_masking(self, path_in, path_out, type_):
+        print("Mask out this type: " + str(type_))
+
+        self.source_image = cv2.imread(path_in)
+        self.mask_image = 0 * self.source_image
+        self.display_image = self.source_image
+
+        while True:
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
             self.update_image()
             cv2.imshow(self._windowName, self.display_image)
 
-        self.shutdown()
+        output_root = os.sep.join(path_out.split(os.sep)[:-1])
+        if not os.path.exists(path_in):
+            os.makedirs(output_root)
+        print("writing mask to " + str(path_out))
+        cv2.imwrite(path_out, self.mask_image)
 
     def _brush_slider_cb(self, value):
         self._brush_value = value
@@ -66,7 +103,6 @@ class MaskMaker:
         self.updateable = True
 
     def shutdown(self):
-        cv2.imwrite(self._path_out, self.mask_image)
         cv2.destroyAllWindows()
         # todo: save output image, etc.
 
@@ -98,7 +134,13 @@ class MaskMaker:
 
 
 def main():
-    MaskMaker("./ghprofile.jpeg","./ghprofile_out.jpg")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--input", type=str, required=True)
+    parser.add_argument("-o", "--output", type=str, required=True)
+    parser.add_argument("-t", "--types", type=str, nargs="+", required=True)
+    args = parser.parse_args()
+
+    MaskMaker(args.input, args.output, args.types)
 
 
 if __name__ == "__main__":
